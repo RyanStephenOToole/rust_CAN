@@ -28,11 +28,10 @@ fn rcc_init(config: &mut Config) {
 }
 
 fn can_init(can_cfg: &mut can::CanConfigurator) {
-    can_cfg.properties().set_extended_filter(
-        can::filter::ExtendedFilterSlot::_0,
-        can::filter::ExtendedFilter::accept_all_into_fifo1(),
-    );
-
+    // can_cfg.properties().set_extended_filter(
+    //     can::filter::ExtendedFilterSlot::_0,
+    //     can::filter::ExtendedFilter::accept_all_into_fifo1(),
+    // );
     // 1 Mbps
     can_cfg.set_bitrate(1_000_000);
 }
@@ -61,7 +60,7 @@ static CAN_RX_CHANNEL: Channel<CriticalSectionRawMutex, u32, 8> = Channel::new()
 
 #[embassy_executor::task]
 async fn can_controller(spawner: Spawner, can_cfg: CanConfigurator<'static>) {
-    info!("can_contorller spawned");
+    info!("can_controller spawned");
     // Classic CAN
     let mut can = can_cfg.start(can::OperatingMode::NormalOperationMode);
     let (mut tx, mut rx, _props) = can.split();
@@ -77,13 +76,18 @@ async fn can_controller(spawner: Spawner, can_cfg: CanConfigurator<'static>) {
 
     // Spawn Tx Rx threads
     spawner.spawn(can_tx_task(tx).unwrap());
-    spawner.spawn(can_rx_task(rx).unwrap());
+    // spawner.spawn(can_rx_task(rx).unwrap());
 
     loop {
-        let rx_data = CAN_RX_CHANNEL.receive().await;
-        info!("rx thread data: {}", rx_data);
+        info!("controller debug");
+        embassy_time::Timer::after_millis(250).await;
     }
+    // loop {
+    //     let rx_data = CAN_RX_CHANNEL.receive().await;
+    //     info!("rx thread data: {}", rx_data);
+    // }
     // rjmp here
+    info!("can_controller destroyed");
 }
 
 #[embassy_executor::task]
@@ -92,13 +96,20 @@ async fn can_tx_task(mut tx: can::CanTx<'static>) -> ! {
     loop {
         let frame = async {
             embassy_time::Timer::after_millis(250).await;
-            can::frame::Frame::new_standard(0x123, &[5; 16])
+            //can::frame::Frame::new_standard(0x123u16, &[5u8]).expect("failed to create can frame")
+            can::frame::Frame::new_standard(
+                0x123,
+                &[0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88],
+            )
+            .unwrap()
         }
         .await;
+        info!("sending Frame");
         if let Some(queue_overflow) = tx.write(&frame).await {
             info!("buffer overflowed: {}", queue_overflow);
         }
     }
+    info!("can_tx_task destroyed");
 }
 
 #[embassy_executor::task]
@@ -107,8 +118,9 @@ async fn can_rx_task(rx: can::CanRx<'static>) {
     let mut temp = 0;
     loop {
         // rx.read;
-        CAN_RX_CHANNEL.send(temp).await;
+        // CAN_RX_CHANNEL.send(temp).await;
         embassy_time::Timer::after_millis(250).await;
-        temp += 1;
+        // temp += 1;
     }
+    info!("can_rx_task destroyed");
 }
