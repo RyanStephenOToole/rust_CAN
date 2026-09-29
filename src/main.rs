@@ -7,6 +7,8 @@ use embassy_executor::Spawner;
 use embassy_stm32::can::CanConfigurator;
 use embassy_stm32::peripherals::*;
 use embassy_stm32::{Config, bind_interrupts, can};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
 use panic_probe as _;
 use static_cell::StaticCell;
 
@@ -54,8 +56,12 @@ async fn main(spawner: Spawner) {
 }
 
 // ==========================================================================================================
+static CAN_TX_CHANNEL: Channel<CriticalSectionRawMutex, u32, 8> = Channel::new();
+static CAN_RX_CHANNEL: Channel<CriticalSectionRawMutex, u32, 8> = Channel::new();
+
 #[embassy_executor::task]
 async fn can_controller(spawner: Spawner, can_cfg: CanConfigurator<'static>) {
+    info!("can_contorller spawned");
     // Classic CAN
     let mut can = can_cfg.start(can::OperatingMode::NormalOperationMode);
     let (mut tx, mut rx, _props) = can.split();
@@ -71,16 +77,22 @@ async fn can_controller(spawner: Spawner, can_cfg: CanConfigurator<'static>) {
 
     // Spawn Tx Rx threads
     spawner.spawn(can_tx_task(tx).unwrap());
+    spawner.spawn(can_rx_task(rx).unwrap());
 
+    loop {
+        let rx_data = CAN_RX_CHANNEL.receive().await;
+        info!("rx thread data: {}", rx_data);
+    }
     // rjmp here
 }
 
 #[embassy_executor::task]
 async fn can_tx_task(mut tx: can::CanTx<'static>) -> ! {
+    info!("can_tx_task spawned");
     loop {
         let frame = async {
             embassy_time::Timer::after_millis(250).await;
-            can::frame::Frame::new_standard(0x123, &[5; 16]).unwrap()
+            can::frame::Frame::new_standard(0x123, &[5; 16])
         }
         .await;
         if let Some(queue_overflow) = tx.write(&frame).await {
@@ -90,11 +102,13 @@ async fn can_tx_task(mut tx: can::CanTx<'static>) -> ! {
 }
 
 #[embassy_executor::task]
-async fn can_rx_task(
-    can_rx_buf: &'static mut embassy_sync::channel::Channel<
-        embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex,
-        Result<can::frame::Envelope, can::enums::BusError>,
-        10,
-    >,
-) {
+async fn can_rx_task(rx: can::CanRx<'static>) {
+    info!("can_rx_task spawned");
+    let mut temp = 0;
+    loop {
+        // rx.read;
+        CAN_RX_CHANNEL.send(temp).await;
+        embassy_time::Timer::after_millis(250).await;
+        temp += 1;
+    }
 }
