@@ -76,7 +76,7 @@ async fn can_controller(spawner: Spawner, can_cfg: CanConfigurator<'static>) {
 
     // Spawn Tx Rx threads
     spawner.spawn(can_tx_task(tx).unwrap());
-    // spawner.spawn(can_rx_task(rx).unwrap());
+    spawner.spawn(can_rx_task(rx).unwrap());
 
     loop {
         info!("controller debug");
@@ -113,14 +113,29 @@ async fn can_tx_task(mut tx: can::CanTx<'static>) -> ! {
 }
 
 #[embassy_executor::task]
-async fn can_rx_task(rx: can::CanRx<'static>) {
+async fn can_rx_task(mut rx: can::CanRx<'static>) {
     info!("can_rx_task spawned");
-    let mut temp = 0;
+    let mut last_read_ts = embassy_time::Instant::now();
     loop {
         // rx.read;
         // CAN_RX_CHANNEL.send(temp).await;
-        embassy_time::Timer::after_millis(250).await;
+        // embassy_time::Timer::after_millis(250).await;
         // temp += 1;
+
+        match rx.read().await {
+            Ok(envelope) => {
+                let (ts, rx_frame) = (envelope.ts, envelope.frame);
+                let delta = (ts - last_read_ts).as_millis();
+                last_read_ts = ts;
+                info!(
+                    "Rx: {} {:02x} --- {}ms",
+                    rx_frame.header().len(),
+                    rx_frame.data()[0..rx_frame.header().len() as usize],
+                    delta,
+                )
+            }
+            Err(_err) => error!("Error in frame"),
+        }
     }
     info!("can_rx_task destroyed");
 }
