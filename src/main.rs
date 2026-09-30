@@ -55,8 +55,8 @@ async fn main(spawner: Spawner) {
 }
 
 // ==========================================================================================================
-static CAN_TX_CHANNEL: Channel<CriticalSectionRawMutex, u32, 8> = Channel::new();
-static CAN_RX_CHANNEL: Channel<CriticalSectionRawMutex, u32, 8> = Channel::new();
+static CAN_TX_CHANNEL: Channel<CriticalSectionRawMutex, [u8; 8], 8> = Channel::new();
+static CAN_RX_CHANNEL: Channel<CriticalSectionRawMutex, [u8; 8], 8> = Channel::new();
 
 #[embassy_executor::task]
 async fn can_controller(spawner: Spawner, can_cfg: CanConfigurator<'static>) {
@@ -78,15 +78,15 @@ async fn can_controller(spawner: Spawner, can_cfg: CanConfigurator<'static>) {
     spawner.spawn(can_tx_task(tx).unwrap());
     spawner.spawn(can_rx_task(rx).unwrap());
 
+    // rjmp here
     loop {
         info!("controller debug");
         embassy_time::Timer::after_millis(250).await;
+
+        let rx_data = CAN_RX_CHANNEL.receive().await;
+        info!("rx thread data: {}", rx_data);
     }
-    // loop {
-    //     let rx_data = CAN_RX_CHANNEL.receive().await;
-    //     info!("rx thread data: {}", rx_data);
-    // }
-    // rjmp here
+
     info!("can_controller destroyed");
 }
 
@@ -132,7 +132,13 @@ async fn can_rx_task(mut rx: can::CanRx<'static>) {
                     rx_frame.header().len(),
                     rx_frame.data()[0..rx_frame.header().len() as usize],
                     delta,
-                )
+                );
+
+                let mut data = [0u8; 8];
+                let rx_length = rx_frame.data().len();
+                data[..rx_length].copy_from_slice(&rx_frame.data()[..rx_length]);
+
+                CAN_RX_CHANNEL.send(data).await;
             }
             Err(_err) => error!("Error in frame"),
         }
