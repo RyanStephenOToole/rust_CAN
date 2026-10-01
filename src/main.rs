@@ -26,11 +26,6 @@ fn rcc_init(config: &mut Config) {
     config.rcc.sys = Sysclk::HSISYS;
 }
 
-fn can_init(can_cfg: &mut can::CanConfigurator) {
-    // 1 Mbps
-    can_cfg.set_bitrate(1_000_000);
-}
-
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let cfg = {
@@ -43,15 +38,14 @@ async fn main(spawner: Spawner) {
 
     let mut can_cfg =
         can::CanConfigurator::new(peripherals.FDCAN1, peripherals.PD0, peripherals.PD1, Irqs);
-
-    can_init(&mut can_cfg);
+    can_cfg.set_bitrate(1_000_000);
     spawner.spawn(can_controller(spawner, can_cfg).unwrap());
     // Data Processing Task
 }
 
 // ==========================================================================================================
 static CAN_TX_CHANNEL: Channel<CriticalSectionRawMutex, can::Frame, 8> = Channel::new();
-static CAN_RX_CHANNEL: Channel<CriticalSectionRawMutex, [u8; 8], 8> = Channel::new();
+static CAN_RX_CHANNEL: Channel<CriticalSectionRawMutex, can::Frame, 8> = Channel::new();
 
 #[embassy_executor::task]
 async fn can_controller(spawner: Spawner, can_cfg: CanConfigurator<'static>) {
@@ -104,11 +98,6 @@ async fn can_rx_task(mut rx: can::CanRx<'static>) {
     info!("can_rx_task spawned");
     let mut last_read_ts = embassy_time::Instant::now();
     loop {
-        // rx.read;
-        // CAN_RX_CHANNEL.send(temp).await;
-        // embassy_time::Timer::after_millis(250).await;
-        // temp += 1;
-
         match rx.read().await {
             Ok(envelope) => {
                 let (ts, rx_frame) = (envelope.ts, envelope.frame);
@@ -121,6 +110,8 @@ async fn can_rx_task(mut rx: can::CanRx<'static>) {
                     delta,
                 );
 
+                CAN_RX_CHANNEL.send(rx_frame).await;
+
                 let mut data = [0u8; 8];
                 let rx_length = rx_frame.data().len();
                 data[..rx_length].copy_from_slice(&rx_frame.data()[..rx_length]);
@@ -131,3 +122,19 @@ async fn can_rx_task(mut rx: can::CanRx<'static>) {
         }
     }
 }
+
+struct CanFrame {
+    header: u16,
+    data: [u8; 8],
+}
+
+async fn can_recieve() -> Result<T, &'static str> {
+    let rx_frame = CAN_RX_CHANNEL.receive().await;
+    let rx_length = rx_frame.data().len();
+    let data = [0u8; 8];
+    data[..rx_length].copy_from_slice(&rx_frame.data()[..rx_length]);
+
+    // Comapre data with known packets
+}
+
+async fn can_transmit() -> &'static str {}
