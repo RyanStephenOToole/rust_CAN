@@ -123,18 +123,42 @@ async fn can_rx_task(mut rx: can::CanRx<'static>) {
     }
 }
 
-struct CanFrame {
-    header: u16,
-    data: [u8; 8],
+// async fn can_recieve() -> can::Frame {}
+// async fn can_transmit() -> &'static str {}
+
+struct MoveStepper {
+    direction: u8,
+    degrees: u8,
 }
 
-async fn can_recieve() -> Result<T, &'static str> {
-    let rx_frame = CAN_RX_CHANNEL.receive().await;
-    let rx_length = rx_frame.data().len();
-    let data = [0u8; 8];
-    data[..rx_length].copy_from_slice(&rx_frame.data()[..rx_length]);
+impl CanFunction for MoveStepper {
+    fn classify(frame: &can::Frame) -> bool {
+        todo!()
+    }
 
-    // Comapre data with known packets
+    fn handle(
+        frame: &can::Frame,
+        peripherals: &embassy_stm32::Peripherals,
+    ) -> Result<(), &'static str> {
+        todo!()
+    }
 }
 
-async fn can_transmit() -> &'static str {}
+pub(crate) trait CanFunction {
+    fn classify(frame: &can::Frame) -> bool;
+    fn handle(
+        frame: &can::Frame,
+        peripherals: &embassy_stm32::Peripherals,
+    ) -> Result<(), &'static str>;
+}
+
+#[embassy_executor::task]
+async fn dispatcher(spawner: Spawner, peripherals: embassy_stm32::Peripherals) {
+    loop {
+        let frame = CAN_RX_CHANNEL.receive().await;
+
+        if MoveStepper::classify(&frame) {
+            MoveStepper::handle(&frame, &peripherals);
+        }
+    }
+}
